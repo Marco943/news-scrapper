@@ -1,9 +1,7 @@
 import re
 import time
-from cProfile import Profile
 from dataclasses import dataclass
 from pathlib import Path
-from pstats import SortKey, Stats
 
 import httpx
 import pendulum
@@ -17,18 +15,10 @@ from icecream import ic
 class Site:
     site: str
     url: str
-    schema = {
-        "f": pl.Utf8,
-        "mat": pl.Utf8,
-        "url": pl.Utf8,
-        "img": pl.Utf8,
-        "dt": pl.Datetime,
-    }
 
     def __post_init__(self):
         self._caminho = Path().joinpath("noticias").joinpath(f"{self.site}.json")
-        if not self._caminho.parent.exists():
-            Path.mkdir(self._caminho.parent)
+        self._caminho.parent.mkdir(exist_ok=True)
         self._ler_noticias()
 
     def _construir_soup(self, s: httpx.Client, url: str) -> BeautifulSoup:
@@ -38,22 +28,18 @@ class Site:
         return soup
 
     def _gravar_noticias(self, noticias_atualizadas: list = None) -> None:
-        if noticias_atualizadas is not None:
-            df = pl.from_dicts(
-                noticias_atualizadas,
-                schema=self.schema,
-            ).filter(~pl.col("mat").is_in(self.noticias["mat"].unique()))
-            self.noticias = pl.concat([self.noticias, df])
+        df = pl.from_dicts(noticias_atualizadas)
+        if noticias_atualizadas is not None and not self.noticias.is_empty():
+            df = df.filter(~pl.col("url").is_in(self.noticias["url"].unique()))
+        self.noticias = pl.concat([self.noticias, df])
 
         self.noticias.write_json(self._caminho, pretty=False, row_oriented=True)
 
     def _ler_noticias(self) -> pl.DataFrame:
         if not self._caminho.exists():
-            self.noticias = pl.DataFrame(schema=self.schema)
+            self.noticias = pl.DataFrame()
         else:
-            self.noticias = pl.read_json(
-                self._caminho, schema_overrides={"dt": pl.Datetime}
-            )
+            self.noticias = pl.read_json(self._caminho)
         return self.noticias
 
     def atualizar_noticias(self):
@@ -65,46 +51,39 @@ class CnnEconomia(Site):
     site: str = "cnn"
     url: str = "https://www.cnnbrasil.com.br/economia/"
 
-    def parsear_noticia(self, s, url_materia: str):
-        soup_materia = self._construir_soup(s, url_materia)
-        materia = soup_materia.find("h1", class_="post__title").text.strip()
+    def parsear_noticia(self, s, noticia_url: str):
+        noticia = {"f": self.site, "url": noticia_url}
+        soup_materia = self._construir_soup(s, noticia_url)
+
+        post_title = soup_materia.find("h1", class_="post__title")
+        if post_title is None:
+            return None
+        noticia["mat"] = post_title.text.strip()
+
         picture = soup_materia.find("picture", class_="img__destaque")
         if picture is not None:
-            img = picture.img.get("src")
-        else:
-            img = None
-        data_post = soup_materia.find("span", class_="post__data").text.strip()
-        re_data = re.search("\d{2}\/\d{2}\/\d{4} às \d{1,2}\:\d{2}$", data_post)
-        datahora_publi = pendulum.from_format(
-            re_data.group(0), "DD/MM/YYYY [às] HH:mm", tz="America/Sao_Paulo"
-        )
+            noticia["img"] = picture.img.get("src")
 
-        return {
-            "f": self.site,
-            "mat": materia,
-            "url": url_materia,
-            "img": img,
-            "dt": datahora_publi,
-        }
+        data_post = soup_materia.find("span", class_="post__data").text.strip()
+        re_data = re.search(r"\d{2}\/\d{2}\/\d{4} às \d{1,2}:\d{2}$", data_post)
+        noticia["dt"] = pendulum.from_format(
+            re_data.group(0), "DD/MM/YYYY [às] HH:mm", tz="America/Sao_Paulo"
+        ).to_iso8601_string()
+
+        return noticia
 
     def atualizar_noticias(self):
         s = httpx.Client()
         s.headers.update({"User-Agent": UserAgent().random})
-        soup = self._construir_soup(s, self.url)
-        noticias = soup.find_all("a", href=re.compile("\.com\.br\/economia\/.+"))
-        noticias = [
-            noticia.get("href")
-            for noticia in noticias
-            if noticia.get("href") not in self.noticias.get_column("url")
-        ]
+        pag_inicial = self._construir_soup(s, self.url)
+        noticias = pag_inicial.find_all(
+            "a", href=re.compile(r"\.com\.br\/economia\/.+")
+        )
+        noticias_url = [noticia.get("href") for noticia in noticias]
+        # if noticia.get("href") not in self.noticias.get_column("url")
 
-        noticias_atualizadas = [
-            self.parsear_noticia(s, noticia) for noticia in noticias
-        ]
-
-        noticias_atualizadas = [
-            noticia for noticia in noticias_atualizadas if noticia is not None
-        ]
+        noticias_atualizadas = [self.parsear_noticia(s, x) for x in noticias_url]
+        noticias_atualizadas = filter(bool, noticias_atualizadas)
 
         self._gravar_noticias(noticias_atualizadas)
 
@@ -114,62 +93,32 @@ class BbcEconomia(Site):
     site: str = "bbc"
     url: str = "https://www.bbc.com/portuguese/topics/cvjp2jr0k9rt"
 
-    def parsear_noticia(self, s, url_materia: str):
-        # url_materia = noticias[17]
-        soup_materia = self._construir_soup(s, url_materia)
-        materia = soup_materia.find("h1")
-        img = soup_materia.find("img")
-        if img is not None:
-            img = img.get("href")
-        else:
-            img = None
-        dt = soup_materia.find("time")
-        if dt is not None:
-            try:
-                datahora_publi = pendulum.from_format(
-                    dt.text + "00", "D MMMM YYYY[,] HH:mm Z", locale="pt-br"
-                )
-            except ValueError:
-                datahora_publi = pendulum.from_format(
-                    dt.text, "D MMMM YYYY", locale="pt-br"
-                )
-        else:
-            datahora_publi = None
-
-        return {
-            "f": self.site,
-            "mat": materia,
-            "url": url_materia,
-            "img": img,
-            "dt": datahora_publi,
-        }
+    def parsear_noticia(self, noticia_tag: Tag):
+        noticia = {"f": self.site}
+        noticia["mat"] = noticia_tag.text
+        noticia["url"] = noticia_tag.get("href")
+        noticia["img"] = noticia_tag.parent.parent.parent.find("img").get("src")
+        noticia["dt"] = pendulum.from_format(
+            noticia_tag.parent.parent.find("time").get("datetime"),
+            "YYYY-MM-DD",
+            tz="America/Sao_Paulo",
+        ).to_iso8601_string()
+        return noticia
 
     def atualizar_noticias(self):
         s = httpx.Client()
         s.headers.update({"User-Agent": UserAgent().random})
-        soup = self._construir_soup(s, self.url)
-        noticias = soup.find_all(
-            "a", href=re.compile("\.com\/portuguese\/articles\/.+")
+        pag_inicial = self._construir_soup(s, self.url)
+        noticias = pag_inicial.find_all(
+            "a", href=re.compile(r"\.com\/portuguese\/articles\/.+")
         )
-        noticias = [
-            noticia.get("href")
-            for noticia in noticias
-            if noticia.get("href") not in self.noticias.get_column("url")
-        ]
-        noticias_atualizadas = [
-            self.parsear_noticia(s, noticia) for noticia in noticias
-        ]
-        self.parsear_noticia(s, noticias[17])
+        # if noticia.get("href") not in self.noticias.get_column("url")
+
+        noticias_atualizadas = [self.parsear_noticia(x) for x in noticias]
+        noticias_atualizadas = filter(bool, noticias_atualizadas)
+
+        self._gravar_noticias(noticias_atualizadas)
 
 
 self = BbcEconomia()
-
-
-def main():
-    while True:
-        self.atualizar_noticias()
-        print("Atualizado", pendulum.now())
-        time.sleep(60)
-
-
-main()
+self.atualizar_noticias()
