@@ -80,7 +80,6 @@ class CnnEconomia(Site):
             "a", href=re.compile(r"\.com\.br\/economia\/.+")
         )
         noticias_url = [noticia.get("href") for noticia in noticias]
-        # if noticia.get("href") not in self.noticias.get_column("url")
 
         noticias_atualizadas = [self.parsear_noticia(s, x) for x in noticias_url]
         noticias_atualizadas = filter(bool, noticias_atualizadas)
@@ -120,5 +119,101 @@ class BbcEconomia(Site):
         self._gravar_noticias(noticias_atualizadas)
 
 
-self = BbcEconomia()
+@dataclass
+class FolhaSPMercado(Site):
+    site: str = "folha-sp-mercado"
+    url: str = "https://feeds.folha.uol.com.br/mercado/rss091.xml"
+
+    def parsear_noticia(self, noticia_tag: Tag):
+        noticia = {"f": self.site}
+        noticia["mat"] = noticia_tag.find("title").text
+        noticia_url = re.findall(
+            r"\*(http.*html)\"", noticia_tag.find("description").text
+        )
+        if not noticia_url:
+            return None
+        noticia["url"] = noticia_url[0]
+        noticia_dt = re.findall(
+            r"(\d{2}\/\d{2}\/\d{4} - \d{2}h\d{2})\)\s?$",
+            noticia_tag.find("description").text,
+        )[0]
+        if not noticia_dt:
+            return None
+        noticia["dt"] = pendulum.from_format(
+            noticia_dt,
+            "MM/DD/YYYY [-] HH[h]mm",
+            tz="America/Sao_Paulo",
+        ).to_iso8601_string()
+        return noticia
+
+    def atualizar_noticias(self):
+        s = httpx.Client()
+        s.headers.update({"User-Agent": UserAgent().random})
+        pag_inicial = self._construir_soup(s, self.url)
+        noticias = pag_inicial.find_all("item")
+        noticias_atualizadas = [self.parsear_noticia(x) for x in noticias]
+        noticias_atualizadas = filter(bool, noticias_atualizadas)
+
+        self._gravar_noticias(noticias_atualizadas)
+
+
+@dataclass
+class ValorEcon(Site):
+    site: str = "valor-economico"
+    url: str = "https://pox.globo.com/rss/valor"
+
+    def parsear_noticia(self, noticia_tag: Tag):
+        noticia = {"f": self.site}
+        noticia["mat"] = noticia_tag.find("title").text.strip()
+        noticia["url"] = noticia_tag.find("guid").text
+        noticia["dt"] = pendulum.from_format(
+            noticia_tag.find("pubdate").text,
+            "ddd[,] DD MMM YYYY HH:mm:ss ZZ",
+            tz="America/Sao_Paulo",
+        ).to_iso8601_string()
+        noticia_media = noticia_tag.find("media:content")
+        noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
+        return noticia
+
+    def atualizar_noticias(self):
+        s = httpx.Client()
+        s.headers.update({"User-Agent": UserAgent().random})
+        pag_inicial = self._construir_soup(s, self.url)
+        noticias = pag_inicial.find_all("item")
+        noticias_atualizadas = [self.parsear_noticia(x) for x in noticias]
+        noticias_atualizadas = filter(bool, noticias_atualizadas)
+
+        self._gravar_noticias(noticias_atualizadas)
+
+
+@dataclass
+class G1Econ(Site):
+    site: str = "g1-economia"
+    url: str = "https://g1.globo.com/rss/g1/economia/"
+
+    def parsear_noticia(self, noticia_tag: Tag):
+        noticia = {"f": self.site}
+        noticia["mat"] = noticia_tag.find("title").text.strip()
+        noticia["url"] = noticia_tag.find("guid").text
+        noticia["dt"] = pendulum.from_format(
+            noticia_tag.find("pubdate").text,
+            "ddd[,] DD MMM YYYY HH:mm:ss ZZ",
+            tz="America/Sao_Paulo",
+        ).to_iso8601_string()
+        noticia_media = noticia_tag.find("media:content")
+        noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
+        return noticia
+
+    def atualizar_noticias(self):
+        s = httpx.Client()
+        s.headers.update({"User-Agent": UserAgent().random})
+        pag_inicial = self._construir_soup(s, self.url)
+        noticias = pag_inicial.find_all("item")
+        noticias_atualizadas = [self.parsear_noticia(x) for x in noticias]
+        noticias_atualizadas = filter(bool, noticias_atualizadas)
+
+        self._gravar_noticias(noticias_atualizadas)
+
+
+self = G1Econ()
 self.atualizar_noticias()
