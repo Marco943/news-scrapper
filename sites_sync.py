@@ -213,7 +213,3 @@ class G1Econ(Site):
         noticias_atualizadas = filter(bool, noticias_atualizadas)
 
         self._gravar_noticias(noticias_atualizadas)
-
-
-self = G1Econ()
-self.atualizar_noticias()
