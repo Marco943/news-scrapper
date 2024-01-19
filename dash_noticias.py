@@ -1,11 +1,21 @@
-from dash import Dash, html, dcc
-import dash_mantine_components as dmc
-from dash_iconify import DashIconify
-import polars as pl
+from pathlib import Path
 
-noticias = pl.read_json(
-    "./noticias/cnn.json", schema_overrides={"dt": pl.Datetime}
-).sort("dt", descending=True)
+import dash_mantine_components as dmc
+import polars as pl
+from dash import Dash
+from dash_iconify import DashIconify
+
+noticias = (
+    pl.concat(
+        [
+            pl.read_json(arquivo)
+            for arquivo in Path().joinpath("noticias").glob("*.json")
+        ],
+        how="diagonal_relaxed",
+    )
+    .with_columns(pl.col.dt.str.to_datetime())
+    .sort("dt", descending=True)
+)
 
 app = Dash(__name__)
 server = app.server
@@ -22,11 +32,8 @@ def caixa_noticia(noticia: dict):
                                 src=noticia["img"],
                                 width=150,
                                 height=80,
-                                # radius="sm",
-                                placeholder=DashIconify(
-                                    icon="carbon:no-image", height=50
-                                ),
                                 withPlaceholder=True,
+                                display="block" if noticia["img"] else None,
                             ),
                             span="content",
                             p=0,
