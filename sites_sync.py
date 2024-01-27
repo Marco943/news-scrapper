@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup, Tag
 from fake_useragent import UserAgent
 from icecream import ic
 
+from db import mongo
+
 
 @dataclass
 class Site:
@@ -20,30 +22,35 @@ class Site:
     def __post_init__(self):
         self.atualizar_noticias = self.atualizar_noticias.__get__(self)
         self.parser_noticias = self.parser_noticias.__get__(self)
-        self._caminho = Path().joinpath("noticias").joinpath(f"{self.site}.json")
-        self._caminho.parent.mkdir(exist_ok=True)
         self._ler_noticias()
 
     def _construir_soup(self, s: httpx.Client, url: str) -> BeautifulSoup:
         page = s.get(url)
-        resposta = page.text
+        resposta = page.content
         soup = BeautifulSoup(resposta, "lxml")
         return soup
 
     def _gravar_noticias(self, noticias_atualizadas: list = None) -> None:
-        df = pl.from_dicts(noticias_atualizadas)
-        if noticias_atualizadas is not None and not self.noticias.is_empty():
-            df = df.filter(~pl.col("url").is_in(self.noticias["url"].unique()))
-        self.noticias = pl.concat([self.noticias, df])
-
-        self.noticias.write_json(self._caminho, pretty=False, row_oriented=True)
+        noticias_atualizadas = [
+            x for x in noticias_atualizadas if x["dt"] >= self.dt_max
+        ]
+        r = mongo["Econodata"]["Notícias"].insert_many(noticias_atualizadas)
+        print(f"{len(r.inserted_ids)} notícias atualizadas")
 
     def _ler_noticias(self) -> pl.DataFrame:
-        if not self._caminho.exists():
-            self.noticias = pl.DataFrame()
+        dt_max_r = list(
+            mongo["Econodata"]["Notícias"].aggregate(
+                [
+                    {"$match": {"f": self.site}},
+                    {"$sort": {"dt": -1}},
+                    {"$limit": 1},
+                ]
+            )
+        )
+        if dt_max_r:
+            self.dt_max = pendulum.parse(dt_max_r[0]["dt"].isoformat())
         else:
-            self.noticias = pl.read_json(self._caminho)
-        return self.noticias
+            self.dt_max = pendulum.datetime(1990, 1, 1)
 
 
 def parser_bbc(self: Site, noticia_tag: Tag) -> dict:
@@ -55,7 +62,7 @@ def parser_bbc(self: Site, noticia_tag: Tag) -> dict:
         noticia_tag.parent.parent.find("time").get("datetime"),
         "YYYY-MM-DD",
         tz="America/Sao_Paulo",
-    ).to_iso8601_string()
+    )
     return noticia
 
 
@@ -66,7 +73,6 @@ def atualizar_bbc(self: Site):
     noticias = pag_inicial.find_all(
         "a", href=re.compile(r"\.com\/portuguese\/articles\/.+")
     )
-    # if noticia.get("href") not in self.noticias.get_column("url")
 
     noticias_atualizadas = [self.parser_noticias(x) for x in noticias]
     noticias_atualizadas = filter(bool, noticias_atualizadas)
@@ -91,7 +97,7 @@ def parser_fsp(self: Site, noticia_tag: Tag) -> dict:
         noticia_dt,
         "MM/DD/YYYY [-] HH[h]mm",
         tz="America/Sao_Paulo",
-    ).to_iso8601_string()
+    )
     return noticia
 
 
@@ -114,7 +120,7 @@ def parser_v_econ(self: Site, noticia_tag: Tag) -> dict:
         noticia_tag.find("pubdate").text,
         "ddd[,] DD MMM YYYY HH:mm:ss ZZ",
         tz="America/Sao_Paulo",
-    ).to_iso8601_string()
+    )
     noticia_media = noticia_tag.find("media:content")
     noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
     return noticia
@@ -139,7 +145,7 @@ def parser_g1_econ(self: Site, noticia_tag: Tag) -> dict:
         noticia_tag.find("pubdate").text,
         "ddd[,] DD MMM YYYY HH:mm:ss ZZ",
         tz="America/Sao_Paulo",
-    ).to_iso8601_string()
+    )
     noticia_media = noticia_tag.find("media:content")
     noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
     return noticia
@@ -173,7 +179,7 @@ def parser_cnn_econ(self: Site, s: httpx.Client, noticia_url: str) -> dict:
     re_data = re.search(r"\d{2}\/\d{2}\/\d{4} às \d{1,2}:\d{2}$", data_post)
     noticia["dt"] = pendulum.from_format(
         re_data.group(0), "DD/MM/YYYY [às] HH:mm", tz="America/Sao_Paulo"
-    ).to_iso8601_string()
+    )
 
     return noticia
 

@@ -5,6 +5,8 @@ import polars as pl
 from dash import Dash
 from dash_iconify import DashIconify
 
+from db import mongo
+
 noticias = (
     pl.concat(
         [
