@@ -1,5 +1,4 @@
 import re
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -219,3 +218,5 @@ g1econ = Site(
 cnn = Site(
     "cnn", "https://www.cnnbrasil.com.br/economia/", atualizar_cnn_econ, parser_cnn_econ
 )
+
+sites: list[Site] = [bbc, fsp, v_econ, g1econ, cnn]

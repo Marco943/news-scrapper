@@ -1,0 +1,6 @@
+- [ ] CNN
+- [x] BBC
+- [x] GloboNews
+- [x] Folha de SP
+- [x] Valor Econômico
+- [ ] Bloomberg Línea
