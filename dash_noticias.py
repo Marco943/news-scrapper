@@ -2,22 +2,14 @@ from pathlib import Path
 
 import dash_mantine_components as dmc
 import polars as pl
-from dash import Dash
+from dash import Dash, Input, Output, State, callback, callback_context, dcc, html
 from dash_iconify import DashIconify
+from icecream import ic
 
 from db import mongo
 
-noticias = (
-    pl.concat(
-        [
-            pl.read_json(arquivo)
-            for arquivo in Path().joinpath("noticias").glob("*.json")
-        ],
-        how="diagonal_relaxed",
-    )
-    .with_columns(pl.col.dt.str.to_datetime())
-    .sort("dt", descending=True)
-)
+BATELADA_NOTICIAS = 5
+
 
 app = Dash(__name__)
 server = app.server
@@ -31,11 +23,11 @@ def caixa_noticia(noticia: dict):
                     [
                         dmc.Col(
                             dmc.Image(
-                                src=noticia["img"],
+                                src=noticia.get("img", None),
                                 width=150,
                                 height=80,
                                 withPlaceholder=True,
-                                display="block" if noticia["img"] else None,
+                                display="block",
                             ),
                             span="content",
                             p=0,
@@ -61,9 +53,8 @@ def caixa_noticia(noticia: dict):
                     ],
                     size="xs",
                     italic=True,
-                    color="gray",
+                    color="dimmed",
                 ),
-                bg="#f4f4f4",
                 px="0.5rem",
             ),
         ],
@@ -73,8 +64,68 @@ def caixa_noticia(noticia: dict):
     )
 
 
-app.layout = dmc.Container(
-    [caixa_noticia(noticia) for noticia in noticias.iter_rows(named=True)]
-)
+def main_layout():
+    total_noticias = round(
+        pl.scan_parquet("noticias.parquet")
+        .select(pl.count())
+        .collect()
+        .get_column("count")
+        .max()
+        / BATELADA_NOTICIAS
+    )
+    return dmc.MantineProvider(
+        id="mantine-provider",
+        theme={"primaryColor": "yellow", "colorScheme": "light"},
+        withCSSVariables=True,
+        withGlobalStyles=True,
+        withNormalizeCSS=True,
+        inherit=True,
+        children=[
+            dmc.Container(
+                [
+                    dmc.Button("Tema Claro/Escuro", id="mudar-tema"),
+                    html.Div(id="noticias-corpo"),
+                    dmc.Pagination(total=total_noticias, id="noticias-nav", page=1),
+                ]
+            )
+        ],
+    )
 
-server.run(debug=True)
+
+app.layout = main_layout
+
+
+@callback(
+    Output("mantine-provider", "theme"),
+    Input("mudar-tema", "n_clicks"),
+    State("mantine-provider", "theme"),
+)
+def mudar_tema(n, theme):
+    if not n:
+        pass
+    elif theme["colorScheme"] == "light":
+        theme["colorScheme"] = "dark"
+    else:
+        theme["colorScheme"] = "light"
+    return theme
+
+
+@callback(
+    Output("noticias-corpo", "children"),
+    Input("noticias-nav", "page"),
+)
+def mudar_pagina_noticias(pag: int):
+    noticias = (
+        (
+            pl.scan_parquet("noticias.parquet")
+            .sort("dt", descending=True)
+            .slice(BATELADA_NOTICIAS * (pag - 1), BATELADA_NOTICIAS)
+        )
+        .collect()
+        .to_dicts()
+    )
+
+    return [caixa_noticia(noticia) for noticia in noticias]
+
+
+app.run(debug=True)
