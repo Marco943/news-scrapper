@@ -1,14 +1,18 @@
+import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
 
 import httpx
+import pendulum
 import polars as pl
-import pytz
 from bs4 import BeautifulSoup, Tag
+from dotenv import load_dotenv
 from fake_useragent import UserAgent
+from pymongo import MongoClient
 
-from db import mongo
+load_dotenv()
+
+mongo = MongoClient(os.environ.get("DB_ECONODATA"))
 
 
 @dataclass
@@ -22,6 +26,7 @@ class Site:
         self.atualizar_noticias = self.atualizar_noticias.__get__(self)
         self.parser_noticias = self.parser_noticias.__get__(self)
         self._ler_noticias()
+        self.agent = UserAgent().random
 
     def _construir_soup(self, s: httpx.Client, url: str) -> BeautifulSoup:
         page = s.get(url)
@@ -31,9 +36,7 @@ class Site:
 
     def _gravar_noticias(self, noticias_atualizadas: list = None) -> None:
         noticias_atualizadas = [
-            x
-            for x in noticias_atualizadas
-            if x["dt"].astimezone(pytz.utc).replace(tzinfo=None) >= self.dt_max
+            x for x in noticias_atualizadas if x["dt"] >= self.dt_max
         ]
         r = mongo["Econodata"]["Notícias"].insert_many(noticias_atualizadas)
         print(f"{len(r.inserted_ids)} notícias atualizadas")
@@ -49,34 +52,9 @@ class Site:
             )
         )
         if dt_max_r:
-            self.dt_max = dt_max_r[0]["dt"]
+            self.dt_max = pendulum.parse(dt_max_r[0]["dt"].isoformat())
         else:
-            self.dt_max = datetime(1990, 1, 1)
-
-
-def parser_bbc(self: Site, noticia_tag: Tag) -> dict:
-    noticia = {"f": self.site}
-    noticia["mat"] = noticia_tag.find("a").text
-    noticia["url"] = noticia_tag.find("a").get("href")
-    noticia["img"] = noticia_tag.find("img").get("src")
-    noticia["dt"] = datetime.strptime(
-        noticia_tag.find("div", class_="promo-text").find("time").get("datetime")
-        + " -0300",
-        "%Y-%m-%d %z",
-    )
-    return noticia
-
-
-def atualizar_bbc(self: Site):
-    s = httpx.Client()
-    s.headers.update({"User-Agent": UserAgent().random})
-    pag_inicial = self._construir_soup(s, self.url)
-    noticias = pag_inicial.find("main").find("div", class_=None).find_all("li")
-
-    noticias_atualizadas = [self.parser_noticias(x) for x in noticias]
-    noticias_atualizadas = filter(bool, noticias_atualizadas)
-
-    self._gravar_noticias(noticias_atualizadas)
+            self.dt_max = pendulum.datetime(1990, 1, 1)
 
 
 def parser_fsp(self: Site, noticia_tag: Tag) -> dict:
@@ -86,11 +64,16 @@ def parser_fsp(self: Site, noticia_tag: Tag) -> dict:
     if not noticia_url:
         return None
     noticia["url"] = noticia_url[0]
-    noticia_dt = noticia_tag.find("pubdate").text
+    noticia_dt = re.findall(
+        r"(\d{2}\/\d{2}\/\d{4} - \d{2}h\d{2})\)\s?$",
+        noticia_tag.find("description").text,
+    )[0]
     if not noticia_dt:
         return None
-    noticia["dt"] = datetime.strptime(
-        noticia_tag.find("pubdate").text, "%d %b %Y %H:%M:%S %z"
+    noticia["dt"] = pendulum.from_format(
+        noticia_dt,
+        "MM/DD/YYYY [-] HH[h]mm",
+        tz="America/Sao_Paulo",
     )
     return noticia
 
@@ -110,8 +93,10 @@ def parser_v_econ(self: Site, noticia_tag: Tag) -> dict:
     noticia = {"f": self.site}
     noticia["mat"] = noticia_tag.find("title").text.strip()
     noticia["url"] = noticia_tag.find("guid").text
-    noticia["dt"] = datetime.strptime(
-        noticia_tag.find("pubdate").text, "%a, %d %b %Y %H:%M:%S %z"
+    noticia["dt"] = pendulum.from_format(
+        noticia_tag.find("pubdate").text,
+        "ddd[,] DD MMM YYYY HH:mm:ss ZZ",
+        tz="America/Sao_Paulo",
     )
     noticia_media = noticia_tag.find("media:content")
     noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
@@ -133,8 +118,10 @@ def parser_g1_econ(self: Site, noticia_tag: Tag) -> dict:
     noticia = {"f": self.site}
     noticia["mat"] = noticia_tag.find("title").text.strip()
     noticia["url"] = noticia_tag.find("guid").text
-    noticia["dt"] = datetime.strptime(
-        noticia_tag.find("pubdate").text, "%a, %d %b %Y %H:%M:%S %z"
+    noticia["dt"] = pendulum.from_format(
+        noticia_tag.find("pubdate").text,
+        "ddd[,] DD MMM YYYY HH:mm:ss ZZ",
+        tz="America/Sao_Paulo",
     )
     noticia_media = noticia_tag.find("media:content")
     noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
@@ -167,8 +154,8 @@ def parser_cnn_econ(self: Site, s: httpx.Client, noticia_url: str) -> dict:
 
     data_post = soup_materia.find("span", class_="post__data").text.strip()
     re_data = re.search(r"\d{2}\/\d{2}\/\d{4} às \d{1,2}:\d{2}$", data_post)
-    noticia["dt"] = datetime.strptime(
-        re_data.group(0) + " -0300", "%d/%m/%Y às %H:%M %z"
+    noticia["dt"] = pendulum.from_format(
+        re_data.group(0), "DD/MM/YYYY [às] HH:mm", tz="America/Sao_Paulo"
     )
 
     return noticia
@@ -185,34 +172,3 @@ def atualizar_cnn_econ(self: Site):
     noticias_atualizadas = filter(bool, noticias_atualizadas)
 
     self._gravar_noticias(noticias_atualizadas)
-
-
-bbc = Site(
-    "bbc",
-    "https://www.bbc.com/portuguese/topics/cvjp2jr0k9rt",
-    atualizar_bbc,
-    parser_bbc,
-)
-fsp = Site(
-    "folha-sp-mercado",
-    "https://feeds.folha.uol.com.br/mercado/rss091.xml",
-    atualizar_fsp,
-    parser_fsp,
-)
-v_econ = Site(
-    "valor-economico",
-    "https://pox.globo.com/rss/valor",
-    atualizar_v_econ,
-    parser_v_econ,
-)
-g1econ = Site(
-    "g1-economia",
-    "https://g1.globo.com/rss/g1/economia/",
-    atualizar_g1_econ,
-    parser_g1_econ,
-)
-cnn = Site(
-    "cnn", "https://www.cnnbrasil.com.br/economia/", atualizar_cnn_econ, parser_cnn_econ
-)
-
-sites: list[Site] = [bbc, fsp, v_econ, g1econ, cnn]
