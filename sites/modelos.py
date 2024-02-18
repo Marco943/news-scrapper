@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 import pendulum
@@ -12,6 +13,15 @@ from pymongo import MongoClient
 load_dotenv()
 
 mongo = MongoClient(os.environ.get("DB_ECONODATA"))
+
+
+@dataclass
+class Noticia:
+    f: str = None
+    mat: str = None
+    url: str = None
+    img: str = None
+    dt: datetime = None
 
 
 @dataclass
@@ -36,7 +46,7 @@ class Site:
 
     def _gravar_noticias(self, noticias_atualizadas: list = None) -> None:
         if self.debug:
-            print(noticias_atualizadas)
+            print(list(noticias_atualizadas))
             return None
         noticias_atualizadas = [
             x for x in noticias_atualizadas if x["dt"] > self.dt_max
@@ -61,3 +71,44 @@ class Site:
             self.dt_max = pendulum.parse(dt_max_r[0]["dt"].isoformat())
         else:
             self.dt_max = pendulum.datetime(1990, 1, 1)
+
+
+@dataclass
+class SiteAsync(Site):
+    async def _construir_soup(self, s: httpx.AsyncClient, url: str) -> BeautifulSoup:
+        page = await s.get(url)
+        resposta = page.content
+        soup = BeautifulSoup(resposta, "lxml")
+        return soup
+
+
+def parser_googlerss(self: Site, noticia_tag: Tag) -> dict:
+    noticia = {"f": self.site}
+    noticia["mat"] = noticia_tag.find("title").text.strip()
+    noticia["url"] = noticia_tag.find("link").text
+    noticia["dt"] = datetime.strptime(
+        noticia_tag.find("pubdate").text, "%a, %d %b %Y %H:%M:%S %Z"
+    )
+    noticia["img"] = None
+    return noticia
+
+
+def atualizar_googlerss(self: Site):
+    s = httpx.Client()
+    s.headers.update({"User-Agent": self.agent})
+    pag_inicial = self._construir_soup(s, self.url)
+    noticias = pag_inicial.find_all("item")
+    noticias_atualizadas = [self.parser_noticias(x) for x in noticias]
+    noticias_atualizadas = filter(bool, noticias_atualizadas)
+
+    self._gravar_noticias(noticias_atualizadas)
+
+
+@dataclass
+class SiteGoogleRSS(Site):
+    parser_noticias: callable = parser_googlerss
+    atualizar_noticias: callable = atualizar_googlerss
+
+    def __post_init__(self):
+        self.url = f"https://news.google.com/rss/search?q=site%3A{self.url}%20when%3A7d&hl=en-US&gl=US&ceid=US%3Aen"
+        return super().__post_init__()

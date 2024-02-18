@@ -3,14 +3,12 @@ import re
 from datetime import datetime
 
 import httpx
-from bs4 import BeautifulSoup
-from modelos import Site
+from modelos import SiteAsync
 
 
-async def parser_cnn_econ(self: Site, s: httpx.Client, noticia_url: str) -> dict:
+async def parser_cnn_econ(self: SiteAsync, s: httpx.Client, noticia_url: str) -> dict:
     noticia = {"f": self.site, "url": noticia_url}
-    page: httpx.Response = await s.get(noticia_url)
-    soup_materia = BeautifulSoup(page.content, "lxml")
+    soup_materia = await asyncio.run(self._construir_soup())
 
     post_title = soup_materia.find("h1", class_="post__title")
     if post_title is None:
@@ -30,7 +28,7 @@ async def parser_cnn_econ(self: Site, s: httpx.Client, noticia_url: str) -> dict
     return noticia
 
 
-def atualizar_cnn_econ(self: Site):
+def atualizar_cnn_econ(self: SiteAsync):
     s = httpx.Client()
     s.headers.update({"User-Agent": self.agent})
     pag_inicial = self._construir_soup(s, self.url)
@@ -52,12 +50,9 @@ def atualizar_cnn_econ(self: Site):
     self._gravar_noticias(noticias_atualizadas)
 
 
-cnn = Site(
+cnn = SiteAsync(
     "cnn",
     "https://www.cnnbrasil.com.br/economia/",
     atualizar_cnn_econ,
     parser_cnn_econ,
-    debug=True,
 )
-
-cnn.atualizar_noticias()
