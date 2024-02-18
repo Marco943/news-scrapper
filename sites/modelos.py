@@ -35,14 +35,17 @@ class Site:
         return soup
 
     def _gravar_noticias(self, noticias_atualizadas: list = None) -> None:
-        if not self.debug:
+        if self.debug:
             print(noticias_atualizadas)
             return None
         noticias_atualizadas = [
             x for x in noticias_atualizadas if x["dt"] > self.dt_max
         ]
-        r = mongo["Econodata"]["Notícias"].insert_many(noticias_atualizadas)
-        print(f"{len(r.inserted_ids)} notícias atualizadas")
+        if noticias_atualizadas:
+            r = mongo["Econodata"]["Notícias"].insert_many(noticias_atualizadas)
+            print(f"{len(r.inserted_ids)} notícias atualizadas")
+        else:
+            print("Sem notícias para atualizar")
 
     def _ler_noticias(self) -> pl.DataFrame:
         dt_max_r = list(

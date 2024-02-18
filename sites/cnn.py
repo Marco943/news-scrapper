@@ -9,8 +9,8 @@ from modelos import Site
 
 async def parser_cnn_econ(self: Site, s: httpx.Client, noticia_url: str) -> dict:
     noticia = {"f": self.site, "url": noticia_url}
-    r: httpx.Response = await s.get(noticia_url)
-    soup_materia = BeautifulSoup(r.content, "lxml")
+    page: httpx.Response = await s.get(noticia_url)
+    soup_materia = BeautifulSoup(page.content, "lxml")
 
     post_title = soup_materia.find("h1", class_="post__title")
     if post_title is None:
@@ -38,14 +38,11 @@ def atualizar_cnn_econ(self: Site):
     noticias_url = [noticia.get("href") for noticia in noticias]
 
     async def request_noticias():
-        noticias_atualizadas = []
         async with httpx.AsyncClient() as s:
             s.headers.update({"User-Agent": self.agent})
-            for url in noticias_url:
-                r = await self.parser_noticias(s, url)
-                if r is None:
-                    continue
-                noticias_atualizadas.append(r)
+            tasks = [self.parser_noticias(s, url) for url in noticias_url]
+            noticias_atualizadas = await asyncio.gather(*tasks)
+
         return noticias_atualizadas
 
     noticias_atualizadas = asyncio.run(request_noticias())
@@ -60,4 +57,7 @@ cnn = Site(
     "https://www.cnnbrasil.com.br/economia/",
     atualizar_cnn_econ,
     parser_cnn_econ,
+    debug=True,
 )
+
+cnn.atualizar_noticias()
