@@ -61,6 +61,3 @@ cnn = Site(
     atualizar_cnn_econ,
     parser_cnn_econ,
 )
-self = cnn
-
-self.atualizar_noticias()
