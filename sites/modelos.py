@@ -38,10 +38,12 @@ class Site:
         self._ler_noticias()
         self.agent = UserAgent().random
 
-    def _construir_soup(self, s: httpx.Client, url: str) -> BeautifulSoup:
+    def _construir_soup(
+        self, s: httpx.Client, url: str, features: str = "lxml"
+    ) -> BeautifulSoup:
         page = s.get(url)
         resposta = page.content
-        soup = BeautifulSoup(resposta, "lxml")
+        soup = BeautifulSoup(resposta, features)
         return soup
 
     def _gravar_noticias(self, noticias_atualizadas: list = None) -> None:

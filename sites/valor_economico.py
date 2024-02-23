@@ -7,20 +7,19 @@ from modelos import Site
 
 def parser_v_econ(self: Site, noticia_tag: Tag) -> dict:
     noticia = {"f": self.site}
-    noticia["mat"] = noticia_tag.find("title").text.strip()
-    noticia["url"] = noticia_tag.find("guid").text
+    noticia["mat"] = noticia_tag.find("title").text
+    noticia["url"] = noticia_tag.find("link").text
     noticia["dt"] = datetime.strptime(
-        noticia_tag.find("pubdate").text, "%a, %d %b %Y %H:%M:%S %z"
+        noticia_tag.find("pubDate").text, "%a, %d %b %Y %H:%M:%S %z"
     )
-    noticia_media = noticia_tag.find("media:content")
-    noticia["img"] = noticia_media.get("url") if noticia_media is not None else None
+    noticia["img"] = noticia_tag.find("content").get("url")
     return noticia
 
 
 def atualizar_v_econ(self: Site):
     s = httpx.Client()
     s.headers.update({"User-Agent": self.agent})
-    pag_inicial = self._construir_soup(s, self.url)
+    pag_inicial = self._construir_soup(s, self.url, "xml")
     noticias = pag_inicial.find_all("item")
     noticias_atualizadas = [self.parser_noticias(x) for x in noticias]
     noticias_atualizadas = filter(bool, noticias_atualizadas)
