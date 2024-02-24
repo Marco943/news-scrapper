@@ -4,7 +4,6 @@ from datetime import datetime
 
 import httpx
 import pendulum
-import polars as pl
 from bs4 import BeautifulSoup, Tag
 from dotenv import load_dotenv
 from fake_useragent import UserAgent
@@ -55,11 +54,11 @@ class Site:
         ]
         if noticias_atualizadas:
             r = mongo["Econodata"]["Notícias"].insert_many(noticias_atualizadas)
-            print(f"{len(r.inserted_ids)} notícias atualizadas")
+            print(f"{self.site}: {len(r.inserted_ids)} notícias atualizadas")
         else:
-            print("Sem notícias para atualizar")
+            print(f"{self.site}: Sem notícias para atualizar")
 
-    def _ler_noticias(self) -> pl.DataFrame:
+    def _ler_noticias(self):
         dt_max_r = list(
             mongo["Econodata"]["Notícias"].aggregate(
                 [

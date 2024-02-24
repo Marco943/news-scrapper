@@ -3,12 +3,13 @@ import re
 from datetime import datetime
 
 import httpx
-from modelos import SiteAsync
+
+from .modelos import SiteAsync
 
 
 async def parser_exame_econ(self: SiteAsync, s: httpx.Client, noticia_url: str) -> dict:
     noticia = {"f": self.site, "url": noticia_url}
-    soup_materia = await asyncio.run(self._construir_soup())
+    soup_materia = await self._construir_soup(s, noticia_url)
 
     post_title = soup_materia.find("h1", class_="post__title")
     if post_title is None:
@@ -29,14 +30,15 @@ async def parser_exame_econ(self: SiteAsync, s: httpx.Client, noticia_url: str) 
 
 
 def atualizar_exame_econ(self: SiteAsync):
-    s = httpx.Client()
-    s.headers.update({"User-Agent": self.agent})
-    pag_inicial = self._construir_soup(s, self.url)
-    noticias = pag_inicial.find_all("a", href=re.compile(r"\.com\.br\/economia\/.+"))
-    noticias_url = [noticia.get("href") for noticia in noticias]
-
     async def request_noticias():
         async with httpx.AsyncClient() as s:
+            pag_inicial = await self._construir_soup(s, self.url)
+            noticias = pag_inicial.find_all(
+                "a", href=re.compile(r"\.com\.br\/economia\/.+")
+            )
+            print(noticias)
+            noticias_url = [noticia.get("href") for noticia in noticias]
+
             s.headers.update({"User-Agent": self.agent})
             tasks = [self.parser_noticias(s, url) for url in noticias_url]
             noticias_atualizadas = await asyncio.gather(*tasks)
@@ -57,5 +59,3 @@ exame = SiteAsync(
     parser_exame_econ,
     debug=True,
 )
-
-self = exame

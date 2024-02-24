@@ -2,7 +2,8 @@ from datetime import datetime
 
 import httpx
 from bs4 import Tag
-from modelos import Site
+
+from .modelos import Site
 
 
 def parser_g1_econ(self: Site, noticia_tag: Tag) -> dict:
@@ -12,8 +13,8 @@ def parser_g1_econ(self: Site, noticia_tag: Tag) -> dict:
     noticia["dt"] = datetime.strptime(
         noticia_tag.find("pubDate").text, "%a, %d %b %Y %H:%M:%S %z"
     )
-    noticia["img"] = noticia_tag.find("content").get("url")
-
+    content = noticia_tag.find("content")
+    noticia["img"] = content.get("url") if content is not None else None
     return noticia
 
 
@@ -29,7 +30,7 @@ def atualizar_g1_econ(self: Site):
 
 
 g1econ = Site(
-    "g1-economia",
+    "G1",
     "https://g1.globo.com/rss/g1/economia/",
     atualizar_g1_econ,
     parser_g1_econ,

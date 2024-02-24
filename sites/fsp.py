@@ -2,7 +2,8 @@ from datetime import datetime
 
 import httpx
 from bs4 import Tag
-from modelos import Site
+
+from .modelos import Site
 
 
 def parser_fsp(self: Site, noticia_tag: Tag) -> dict:
@@ -27,7 +28,7 @@ def atualizar_fsp(self: Site):
 
 
 fsp = Site(
-    "folha-sp-mercado",
+    "Folha de São Paulo",
     "https://feeds.folha.uol.com.br/mercado/rss091.xml",
     atualizar_fsp,
     parser_fsp,
