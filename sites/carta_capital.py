@@ -2,7 +2,8 @@ from datetime import datetime
 
 import httpx
 from bs4 import Tag
-from modelos import Site
+
+from .modelos import Site
 
 
 def parser_carta_cap(self: Site, noticia_tag: Tag) -> dict:
